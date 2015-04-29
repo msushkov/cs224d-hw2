@@ -1,6 +1,6 @@
 from numpy import *
 from nn.base import NNBase
-from nn.math import softmax, make_onehot
+from nn.math import softmax, make_onehot, sigmoid
 from misc import random_weight_matrix
 
 
@@ -20,6 +20,12 @@ def eval_performance(y_true, y_pred, tagnames):
     print "Mean recall:     %.02f%%" % (100*sum(rec[1:] * support[1:])/sum(support[1:]))
     print "Mean F1:         %.02f%%" % (100*sum(f1[1:] * support[1:])/sum(support[1:]))
 
+
+def tanh(x):
+    return 2 * sigmoid(2 * x) - 1.0
+
+def d_tanh(x):
+    return 4 * sigmoid(2.0 * x) * (1.0 - sigmoid(2.0 * x))
 
 ##
 # Implement this!
@@ -66,8 +72,11 @@ class WindowMLP(NNBase):
         #### YOUR CODE HERE ####
 
         # any other initialization you need
-
-
+        self.word_vec_size = wv.shape[1]
+        self.windowsize = windowsize
+        self.sparams.L = wv.copy()
+        self.params.W = random_weight_matrix(*self.params.W.shape)
+        self.params.U = random_weight_matrix(*self.params.U.shape)
 
         #### END YOUR CODE ####
 
@@ -90,13 +99,38 @@ class WindowMLP(NNBase):
         """
         #### YOUR CODE HERE ####
 
+        (H, X) = self.params.W.shape # (100, 150)
+        (Dy, H) = self.params.U.shape # (5, 100)
+
         ##
         # Forward propagation
+        x = hstack(self.sparams.L[window]) # (150,) --> (X,)
+        a = dot(self.params.W, x) + self.params.b1 # (H,)
+        h = tanh(a) # (H,)
+        y_hat = softmax(dot(self.params.U, h) + self.params.b2) # (Dy,)
+        y = make_onehot(label, len(y_hat))
+        delta = y_hat - y
 
         ##
         # Backpropagation
 
+        # dJ/db2
+        self.grads.b2 += delta
 
+        # dJ/dU
+        self.grads.U += outer(delta, h) + self.lreg * self.params.U
+
+        # dJ/dW, dJ/db1
+        # d_tanh(a) is (H,)
+        x1 = dot(self.params.U.T, delta.reshape((Dy, 1))).reshape((H,)) * d_tanh(a)
+        self.grads.W += outer(x1, x) + self.lreg * self.params.W
+        self.grads.b1 += x1
+
+        # dJ/dLi
+        dxdL = zeros((self.word_vec_size, X))
+        pt = (self.windowsize - 1) / 2 # 1
+        dxdL[:, pt * self.word_vec_size : (pt + 1) * self.word_vec_size] = eye(self.word_vec_size)
+        self.sgrads.L[window[pt]] = dot(dot(dxdL, self.params.W.T), x1.reshape((H, 1))).reshape((self.word_vec_size,))
 
         #### END YOUR CODE ####
 
@@ -118,6 +152,16 @@ class WindowMLP(NNBase):
 
         #### YOUR CODE HERE ####
 
+        (N, windowsize) = windows.shape
+        (Dy, H) = self.params.U.shape
+
+        P = np.zeros((N, Dy))
+
+        for i, window in enumerate(windows):
+            x = hstack(self.sparams.L[window]) # (150,) --> (X,)
+            h = tanh(dot(self.params.W, x) + self.params.b1) # (H,)
+            y_hat = softmax(dot(self.params.U, h) + self.params.b2) # (Dy,)
+            P[i, :] = y_hat
 
         #### END YOUR CODE ####
 
@@ -133,6 +177,18 @@ class WindowMLP(NNBase):
 
         #### YOUR CODE HERE ####
 
+        (N, windowsize) = windows.shape
+        (Dy, H) = self.params.U.shape
+
+        c = []
+
+        for i, window in enumerate(windows):
+            x = hstack(self.sparams.L[window]) # (150,) --> (X,)
+            h = tanh(dot(self.params.W, x) + self.params.b1) # (H,)
+            y_hat = softmax(dot(self.params.U, h) + self.params.b2) # (Dy,)
+            curr = argmax(y_hat)
+            c.append(curr)
+
 
         #### END YOUR CODE ####
         return c # list of predicted classes
@@ -147,6 +203,21 @@ class WindowMLP(NNBase):
 
         #### YOUR CODE HERE ####
 
+        if len(windows.shape) == 1:
+            labels_lst = [labels]
+            windows = [windows]
+        else:
+            labels_lst = labels
+
+        J = 0.0
+
+        for window, label in zip(windows, labels_lst):
+            x = hstack(self.sparams.L[window]) # (150,) --> (X,)
+            h = tanh(dot(self.params.W, x) + self.params.b1) # (H,)
+            y_hat = softmax(dot(self.params.U, h) + self.params.b2) # (Dy,)
+            J -= log(y_hat[label])
+
+        J += (self.lreg / 2.0) * (sum(self.params.W**2.0) + sum(self.params.U**2.0))
 
         #### END YOUR CODE ####
         return J
