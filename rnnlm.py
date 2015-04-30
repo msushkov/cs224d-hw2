@@ -5,8 +5,9 @@ import sys
 
 # Import NN utils
 from nn.base import NNBase
-from nn.math import softmax, sigmoid
+from nn.math import softmax, sigmoid, make_onehot
 from nn.math import MultinomialSampler, multinomial_sample
+from misc import random_weight_matrix
 
 
 class RNNLM(NNBase):
@@ -42,8 +43,16 @@ class RNNLM(NNBase):
 
         #### YOUR CODE HERE ####
 
+        random.seed(rseed)
+
+        self.bptt = bptt
+        self.alpha = alpha
+
+        self.params.H = random_weight_matrix(self.hdim, self.hdim)
+        self.params.U = sqrt(0.1) * random.randn(self.vdim, self.hdim)
 
         # Initialize word vectors
+        self.sparams.L = sqrt(0.1) * random.randn(self.vdim, self.hdim)
 
         #### END YOUR CODE ####
 
@@ -93,11 +102,25 @@ class RNNLM(NNBase):
         ##
         # Forward propagation
 
+        # for each time step
+        for t in xrange(ns):
+            hs[t] = sigmoid(dot(self.params.H, hs[t - 1]) + self.sparams.L[xs[t]])
+            ps[t] = softmax(dot(self.params.U, hs[t]))
 
         ##
         # Backward propagation through time
 
+        for j in xrange(ns):
+            y = make_onehot(ys[j], self.vdim)
+            y_hat_minus_y = ps[j] - y
+            self.grads.U += outer(y_hat_minus_y, hs[j])
+            delta = dot(self.params.U.T, y_hat_minus_y) * hs[j] * (1.0 - hs[j])
 
+            # start at j and go back self.bptt times (total self.bptt + 1 elements, including current one)
+            for t in xrange(j, j - self.bptt - 1, -1):
+                self.grads.H += outer(delta, hs[t - 1])
+                self.sgrads.L[xs[t]] = delta
+                delta = dot(self.params.H.T, delta) * hs[t - 1] * (1.0 - hs[t - 1])
 
         #### END YOUR CODE ####
 
@@ -134,6 +157,14 @@ class RNNLM(NNBase):
         J = 0
         #### YOUR CODE HERE ####
 
+        ns = len(xs)
+        hs = zeros((ns+1, self.hdim))
+
+        # for each time step
+        for t in xrange(ns):
+            hs[t] = sigmoid(dot(self.params.H, hs[t - 1]) + self.sparams.L[xs[t]])
+            y_hat = softmax(dot(self.params.U, hs[t]))
+            J -= log(y_hat[ys[t]])
 
         #### END YOUR CODE ####
         return J
@@ -193,6 +224,16 @@ class RNNLM(NNBase):
 
         #### YOUR CODE HERE ####
 
+        hs = zeros((maxlen+1, self.hdim))
+
+        for t in xrange(maxlen):
+            hs[t] = sigmoid(dot(self.params.H, hs[t - 1]) + self.sparams.L[ys[t]])
+            y_hat = softmax(dot(self.params.U, hs[t]))
+            y_index = multinomial_sample(y_hat)
+            ys.append(y_index)
+            J -= log(y_hat[y_index])
+            if y_index == end:
+                break
 
         #### YOUR CODE HERE ####
         return ys, J

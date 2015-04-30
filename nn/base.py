@@ -1,5 +1,6 @@
 import sys
 from numpy import *
+import numpy as np
 import itertools
 import time
 
@@ -104,7 +105,8 @@ class SparseDelta(object):
         newdata = []
         for i in range(N):
             k1,v1 = self._data[i]
-            if k1 == None: continue
+            # if k1 == None: continue
+            if k1 is None: continue
             for j in range(i+1,N):
                 k2,v2 = self._data[j]
                 if k2 == k1:
@@ -326,24 +328,55 @@ class NNBase(object):
         for name in self.sparams.names():
             if name in skiplist: continue
             theta_full = self.sparams[name]
+            idxblocks = np.indices(theta_full.shape)
             # Loop over all sparse updates for this parameter
             for idx, grad_computed in self.sgrads[name]:
-                theta = theta_full[idx] # view of update block
-                grad_approx = zeros(theta.shape)
-                # Loop over all indices within update block
-                for ij, v in ndenumerate(theta):
+                # For arbitary indexing, might not get a contiguous block
+                # therefore, can't use views for aliasing here
+                # Solution: generate index arrays, select indices
+                # then use these for sparse grad check
+                idxtuples = zip(*[d[idx].flat for d in idxblocks])
+                # idxtuples = zip(*[idxblocks[i][idx].flat
+                #                   for i in range(idxblocks.shape[0])])
+
+                # if name == "L": import pdb; pdb.set_trace() # DEBUG
+
+                grad_approx = zeros(len(idxtuples))
+                theta = theta_full # alias full
+                for k, ij in enumerate(idxtuples):
                     tij = theta[ij]
                     theta[ij] = tij + eps
                     Jplus  = self.compute_loss(x, y)
                     theta[ij] = tij - eps
                     Jminus = self.compute_loss(x, y)
                     theta[ij] = tij # reset
-                    grad_approx[ij] = (Jplus - Jminus)/(2*eps)
+                    grad_approx[k] = (Jplus - Jminus)/(2*eps)
+                # Thankfully, numpy is *very* consistent about index order
+                # and so this will put all the above indices in the right place!
+                # idxtuples (i,j,k,...) are sorted by i, then j, then k, ...
+                # and so will be packed properly in row-major order to match
+                # the old array slice we took.
+                grad_approx = grad_approx.reshape(grad_computed.shape)
+
+                ##
+                # Old version here breaks on idx = [1,2,3]
+                # theta = theta_full[idx] # view of update block
+                # grad_approx = zeros(theta.shape)
+
+                # # Loop over all indices within update block
+                # for ij, v in ndenumerate(theta):
+                #     tij = theta[ij]
+                #     theta[ij] = tij + eps
+                #     Jplus  = self.compute_loss(x, y)
+                #     theta[ij] = tij - eps
+                #     Jminus = self.compute_loss(x, y)
+                #     theta[ij] = tij # reset
+                #     grad_approx[ij] = (Jplus - Jminus)/(2*eps)
                 # Compute Frobenius norm
                 grad_delta = linalg.norm(grad_approx - grad_computed)
                 print >> outfd, "grad_check: dJ/d%s[%s] error norm = %.04g" % (name, idx, grad_delta),
                 print >> outfd, ("[ok]" if grad_delta < tol else "**ERROR**")
-                print >> outfd, "    %s[%s] dims: %s = %d elem" % (name, idx, str(list(theta.shape)), prod(theta.shape))
+                print >> outfd, "    %s[%s] dims: %s = %d elem" % (name, idx, str(list(grad_computed.shape)), prod(grad_computed.shape))
                 if verbose and (grad_delta > tol): # DEBUG
                     print >> outfd, "Numerical: \n" + str(grad_approx)
                     print >> outfd, "Computed:  \n" + str(grad_computed)
