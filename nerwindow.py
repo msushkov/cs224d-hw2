@@ -126,11 +126,10 @@ class WindowMLP(NNBase):
         self.grads.W += outer(x1, x) + self.lreg * self.params.W
         self.grads.b1 += x1
 
-        # dJ/dLi
-        dxdL = zeros((self.word_vec_size, X))
-        pt = (self.windowsize - 1) / 2 # 1
-        dxdL[:, pt * self.word_vec_size : (pt + 1) * self.word_vec_size] = eye(self.word_vec_size)
-        self.sgrads.L[window[pt]] = dot(dot(dxdL, self.params.W.T), x1.reshape((H, 1))).reshape((self.word_vec_size,))
+        dL_updates = dot(self.params.W.T, x1.reshape((H, 1)))
+        for pt in xrange(self.windowsize):
+            f = dL_updates[pt * self.word_vec_size : (pt + 1) * self.word_vec_size]
+            self.sgrads.L[window[pt]] = f.reshape((self.word_vec_size,))
 
         #### END YOUR CODE ####
 
