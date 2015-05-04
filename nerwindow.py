@@ -151,10 +151,13 @@ class WindowMLP(NNBase):
 
         #### YOUR CODE HERE ####
 
-        (N, windowsize) = windows.shape
+        print windows
+
+        N = len(windows)
+        windowsize = len(windows[0])
         (Dy, H) = self.params.U.shape
 
-        P = np.zeros((N, Dy))
+        P = zeros((N, Dy))
 
         for i, window in enumerate(windows):
             x = hstack(self.sparams.L[window]) # (150,) --> (X,)
@@ -202,9 +205,13 @@ class WindowMLP(NNBase):
 
         #### YOUR CODE HERE ####
 
-        if len(windows.shape) == 1:
-            labels_lst = [labels]
+        labels_lst = None
+
+        # handle singleton input by making sure we have
+        # a list-of-lists
+        if not hasattr(windows[0], "__iter__"):
             windows = [windows]
+            labels_lst = [labels]
         else:
             labels_lst = labels
 
