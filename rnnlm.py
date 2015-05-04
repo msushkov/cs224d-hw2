@@ -118,9 +118,10 @@ class RNNLM(NNBase):
 
             # start at j and go back self.bptt times (total self.bptt + 1 elements, including current one)
             for t in xrange(j, j - self.bptt - 1, -1):
-                self.grads.H += outer(delta, hs[t - 1])
-                self.sgrads.L[xs[t]] = delta
-                delta = dot(self.params.H.T, delta) * hs[t - 1] * (1.0 - hs[t - 1])
+                if t - 1 >= -1:
+                    self.grads.H += outer(delta, hs[t - 1])
+                    self.sgrads.L[xs[t]] = delta
+                    delta = dot(self.params.H.T, delta) * hs[t - 1] * (1.0 - hs[t - 1])
 
         #### END YOUR CODE ####
 
